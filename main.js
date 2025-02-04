@@ -117,32 +117,14 @@ document.onmousewheel = function(e) {
   init(1);
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 var canvas = document.getElementById("canvas");
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 // Initialize the GL context
-var gl = canvas.getContext('webgl');
-if(!gl){
+var gl = canvas.getContext("webgl");
+if (!gl) {
   console.error("Unable to initialize WebGL.");
 }
 
@@ -168,6 +150,7 @@ vec2 resolution = vec2(width, height);
 uniform float time;
 
 #define POINT_COUNT 8
+#define PARTICLES_AMOUNT 10
 
 vec2 points[POINT_COUNT];
 const float speed = -0.5;
@@ -175,135 +158,153 @@ const float len = 0.25;
 float intensity = 1.3;
 float radius = 0.008;
 
-//https://www.shadertoy.com/view/MlKcDD
-//Signed distance to a quadratic bezier
+float rnd(float x) {
+    return fract(sin(dot(vec2(x + 47.49, 38.2467 / (x + 2.3)), vec2(12.9898, 78.233))) * (43758.5453));
+}
+
+float drawLeaf(vec2 uv, float scale, float d) {
+    float ret;
+    vec2 root = uv - vec2(0.0, scale);
+    float r = length(root) / scale;
+    float t = abs(atan(root.x, root.y) / 3.1415);
+    float edge = (3.0 * t - 8.0 * t*t*t*t + 6.0 * t*t*t*t*t) / (4.0 - 3.0 * t);
+    ret = smoothstep(edge - d, edge + d, r);
+    return ret;
+}
+
+mat2 rotate(float t) {
+    return mat2(cos(t), -sin(t), sin(t), cos(t));
+}
+
+float drawClover(vec2 uv, float scale, float d) {
+    float ret = drawLeaf(uv, scale, d);
+    uv = rotate(1.5707) * uv;
+    ret *= drawLeaf(uv, scale, d);
+    uv = rotate(1.5707) * uv;
+    ret *= drawLeaf(uv, scale, d);
+    uv = rotate(1.5707) * uv;
+    ret *= drawLeaf(uv, scale, d);
+    return 1.0 - ret;
+}
+
+vec2 getCloverPosition(float t){
+    float x = sin(t) * cos(t);
+    float y = sin(2.0 * t);
+    return vec2(x, y) * 16.0;
+}
+
 float sdBezier(vec2 pos, vec2 A, vec2 B, vec2 C){    
-	vec2 a = B - A;
-	vec2 b = A - 2.0*B + C;
-	vec2 c = a * 2.0;
-	vec2 d = A - pos;
+    vec2 a = B - A;
+    vec2 b = A - 2.0*B + C;
+    vec2 c = a * 2.0;
+    vec2 d = A - pos;
 
-	float kk = 1.0 / dot(b,b);
-	float kx = kk * dot(a,b);
-	float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
-	float kz = kk * dot(d,a);      
+    float kk = 1.0 / dot(b,b);
+    float kx = kk * dot(a,b);
+    float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+    float kz = kk * dot(d,a);      
 
-	float res = 0.0;
+    float res = 0.0;
 
-	float p = ky - kx*kx;
-	float p3 = p*p*p;
-	float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
-	float h = q*q + 4.0*p3;
+    float p = ky - kx*kx;
+    float p3 = p*p*p;
+    float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+    float h = q*q + 4.0*p3;
 
-	if(h >= 0.0){ 
-		h = sqrt(h);
-		vec2 x = (vec2(h, -h) - q) / 2.0;
-		vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
-		float t = uv.x + uv.y - kx;
-		t = clamp( t, 0.0, 1.0 );
+    if(h >= 0.0){ 
+        h = sqrt(h);
+        vec2 x = (vec2(h, -h) - q) / 2.0;
+        vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+        float t = uv.x + uv.y - kx;
+        t = clamp( t, 0.0, 1.0 );
 
-		// 1 root
-		vec2 qos = d + (c + b*t)*t;
-		res = length(qos);
-	}else{
-		float z = sqrt(-p);
-		float v = acos( q/(p*z*2.0) ) / 3.0;
-		float m = cos(v);
-		float n = sin(v)*1.732050808;
-		vec3 t = vec3(m + m, -n - m, n - m) * z - kx;
-		t = clamp( t, 0.0, 1.0 );
+        vec2 qos = d + (c + b*t)*t;
+        res = length(qos);
+    }else{
+        float z = sqrt(-p);
+        float v = acos( q/(p*z*2.0) ) / 3.0;
+        float m = cos(v);
+        float n = sin(v)*1.732050808;
+        vec3 t = vec3(m + m, -n - m, n - m) * z - kx;
+        t = clamp( t, 0.0, 1.0 );
 
-		// 3 roots
-		vec2 qos = d + (c + b*t.x)*t.x;
-		float dis = dot(qos,qos);
+        vec2 qos = d + (c + b*t.x)*t.x;
+        float dis = dot(qos,qos);
         
-		res = dis;
+        res = dis;
 
-		qos = d + (c + b*t.y)*t.y;
-		dis = dot(qos,qos);
-		res = min(res,dis);
-		
-		qos = d + (c + b*t.z)*t.z;
-		dis = dot(qos,qos);
-		res = min(res,dis);
+        qos = d + (c + b*t.y)*t.y;
+        dis = dot(qos,qos);
+        res = min(res,dis);
+        
+        qos = d + (c + b*t.z)*t.z;
+        dis = dot(qos,qos);
+        res = min(res,dis);
 
-		res = sqrt( res );
-	}
+        res = sqrt( res );
+    }
     
-	return res;
+    return res;
 }
 
-
-//http://mathworld.wolfram.com/HeartCurve.html
-vec2 getHeartPosition(float t){
-	return vec2(16.0 * sin(t) * sin(t) * sin(t),
-							-(13.0 * cos(t) - 5.0 * cos(2.0*t)
-							- 2.0 * cos(3.0*t) - cos(4.0*t)));
-}
-
-//https://www.shadertoy.com/view/3s3GDn
 float getGlow(float dist, float radius, float intensity){
-	return pow(radius/dist, intensity);
+    return pow(radius/dist, intensity);
 }
 
 float getSegment(float t, vec2 pos, float offset, float scale){
-	for(int i = 0; i < POINT_COUNT; i++){
-		points[i] = getHeartPosition(offset + float(i)*len + fract(speed * t) * 6.28);
-	}
+    for(int i = 0; i < POINT_COUNT; i++){
+        points[i] = getCloverPosition(offset + float(i)*len + fract(speed * t) * 6.28);
+    }
     
-	vec2 c = (points[0] + points[1]) / 2.0;
-	vec2 c_prev;
-	float dist = 10000.0;
+    vec2 c = (points[0] + points[1]) / 2.0;
+    vec2 c_prev;
+    float dist = 10000.0;
     
-	for(int i = 0; i < POINT_COUNT-1; i++){
-		//https://tinyurl.com/y2htbwkm
-		c_prev = c;
-		c = (points[i] + points[i+1]) / 2.0;
-		dist = min(dist, sdBezier(pos, scale * c_prev, scale * points[i], scale * c));
-	}
-	return max(0.0, dist);
+    for(int i = 0; i < POINT_COUNT-1; i++){
+        c_prev = c;
+        c = (points[i] + points[i+1]) / 2.0;
+        dist = min(dist, sdBezier(pos, scale * c_prev, scale * points[i], scale * c));
+    }
+    return max(0.0, dist);
+}
+
+vec4 alphaBlend(vec4 base, vec4 blend) {
+    return vec4(base.rgb * base.a * (1.0 - blend.a) + blend.rgb * blend.a, 
+                blend.a + base.a * (1.0 - blend.a));   
 }
 
 void main(){
-	vec2 uv = gl_FragCoord.xy/resolution.xy;
-	float widthHeightRatio = resolution.x/resolution.y;
-	vec2 centre = vec2(0.5, 0.5);
-	vec2 pos = centre - uv;
-	pos.y /= widthHeightRatio;
-	//Shift upwards to centre heart
-	pos.y += 0.02;
-	float scale = 0.000015 * height;
-	
-	float t = time;
-    
-	//Get first segment
-  float dist = getSegment(t, pos, 0.0, scale);
-  float glow = getGlow(dist, radius, intensity);
-  
-  vec3 col = vec3(0.0);
+    vec2 uv = (2.0 * gl_FragCoord.xy - resolution.xy) / min(resolution.x, resolution.y);
+    float t = smoothstep(1.5, 0.0, length(uv));
+    vec4 fragColor = vec4(0.082, 0.062, 0.1, 1.0);
 
-	//White core
-  col += 10.0*vec3(smoothstep(0.003, 0.001, dist));
-  //Pink glow
-  col += glow * vec3(1.0,0.05,0.3);
-  
-  //Get second segment
-  dist = getSegment(t, pos, 3.4, scale);
-  glow = getGlow(dist, radius, intensity);
-  
-  //White core
-  col += 10.0*vec3(smoothstep(0.003, 0.001, dist));
-  //Blue glow
-  col += glow * vec3(0.1,0.4,1.0);
+    for (int i = 1; i < PARTICLES_AMOUNT; i++) {
+        float j = float(i);
+        float rnd1 = rnd(cos(j));
+        float delayedTime = (0.2 + 0.2 * rnd1) * time;
+        float d = floor(delayedTime / 1.0);
+        float rnd2 = rnd(j * d);
+        float rnd3 = rnd(j * j * d);
+        float r = delayedTime / 1.0 - d;
+        float x_wave = 0.15 * sin(delayedTime * 7.0 + 6.282 / j);
+        vec2 spawn = vec2(0.0, rnd3 * 0.5);
+        float ease = pow(2.0, 5.0 * (r - 1.0));
+        float y_move = 1.0 * ease;
+        float opacity = 1.0 - ease - pow(2.0, -30.0 * r);
+        float scale = 1.0 - 0.65 * rnd1 + 0.15 * sin(1.8 * time * j / float(PARTICLES_AMOUNT) + 6.282 / j);
+        float rot_wave = 2.0 * sin(delayedTime * 3.0 * j / float(PARTICLES_AMOUNT) * 2.0 + 6.282 / j);
         
-	//Tone mapping
-	col = 1.0 - exp(-col);
-
-	//Gamma
-	col = pow(col, vec3(0.4545));
-
-	//Output to screen
- 	gl_FragColor = vec4(col,1.0);
+        vec2 center = rotate(rot_wave) * (rotate(6.282 * rnd2) * (uv + vec2(0.0, 0.0)) + spawn + vec2(x_wave, y_move)) * scale;
+        
+        vec3 cloverColor = vec3(0.3 + 0.3 * rnd2, 0.98, 0.3) * (1.0 - 0.3 * rnd3);
+        vec3 cloverCenterColor = cloverColor + (vec3(1.0) - cloverColor) * 0.5;
+        
+        fragColor = alphaBlend(fragColor, vec4(vec3(1.0, 0.98, 0.7), opacity * drawClover(center, 0.05, 0.3)));
+        fragColor = alphaBlend(fragColor, vec4(cloverColor, opacity * drawClover(center, 0.05, 0.01)));
+        fragColor = alphaBlend(fragColor, vec4(cloverCenterColor, opacity * drawClover(center, 0.05, 0.3)));
+    }
+    
+    gl_FragColor = fragColor;
 }
 `;
 
